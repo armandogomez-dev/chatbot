@@ -1,0 +1,21 @@
+# Credenciales y secretos
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# Modelos (archivos grandes)
+modelo jhon/
+modelo salo/
+*.bin
+*.safetensors
+*.pt
