@@ -2,8 +2,6 @@ import { Badge } from "../../atoms/Badge";
 import { WhatsAppAlert } from "../WhatsAppAlert/WhatsAppAlert";
 import type { Message } from "../../../types";
 
-const HIGH_RISK_THRESHOLD = 0.75;
-
 interface Props {
   message: Message;
 }
@@ -21,14 +19,11 @@ export function MessageBubble({ message }: Props) {
   }
 
   const isUser = message.role === "user";
-  const isHighRisk =
-    !isUser &&
-    message.riskLevel === "riesgo" &&
-    (message.riskConfidence ?? 0) >= HIGH_RISK_THRESHOLD;
+  const showSpecialistAlert = !isUser && message.specialistAlert === true;
 
   return (
     <div className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
-      {!isHighRisk && (
+      {!showSpecialistAlert && (
         <div
           className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
             isUser
@@ -42,7 +37,7 @@ export function MessageBubble({ message }: Props) {
       {!isUser && message.riskLevel && message.riskConfidence !== undefined && (
         <Badge level={message.riskLevel} confidence={message.riskConfidence} />
       )}
-      {isHighRisk && <WhatsAppAlert />}
+      {showSpecialistAlert && <WhatsAppAlert />}
       <span className="text-[10px] text-slate-400">
         {message.timestamp.toLocaleTimeString("es-CO", {
           hour: "2-digit",

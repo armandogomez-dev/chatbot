@@ -5,9 +5,11 @@ import { MessageList } from "../../organisms/MessageList";
 import { ChatInput } from "../../molecules/ChatInput";
 import { OnboardingModal } from "../../molecules/OnboardingModal/OnboardingModal";
 import { sendMessage } from "../../../services/api";
-import type { Message, RiskLevel, UserInfo } from "../../../types";
+import type { Message, RiskEntry, RiskLevel, UserInfo } from "../../../types";
 
-const HIGH_RISK_THRESHOLD = 0.75;
+// Debe coincidir con RISK_ALERT_WINDOW en el backend: solo se envían los
+// últimos N resultados de riesgo, que es todo lo que el backend evalúa.
+const RISK_HISTORY_WINDOW = 5;
 
 function makeId() {
   return Math.random().toString(36).slice(2);
@@ -17,6 +19,8 @@ export function ChatPage() {
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [riskHistory, setRiskHistory] = useState<RiskEntry[]>([]);
+  const [alertSent, setAlertSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,22 +28,28 @@ export function ChatPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await sendMessage(text, info);
+      const data = await sendMessage(text, info, riskHistory, alertSent);
+      const justAlerted = data.alert_sent && !alertSent;
       const botMsg: Message = {
         id: makeId(),
         role: "assistant",
         content: data.response,
         riskLevel: data.risk_label as RiskLevel,
         riskConfidence: data.risk_confidence,
+        specialistAlert: justAlerted,
         timestamp: new Date(),
       };
 
-      const isHighRisk =
-        data.risk_label === "riesgo" && data.risk_confidence >= HIGH_RISK_THRESHOLD;
+      setAlertSent(data.alert_sent);
+      setRiskHistory((prev) =>
+        [...prev, { risk_label: data.risk_label, risk_confidence: data.risk_confidence }].slice(
+          -RISK_HISTORY_WINDOW,
+        ),
+      );
 
       setMessages((prev) => {
         const next = [...prev, botMsg];
-        if (isHighRisk) {
+        if (justAlerted) {
           next.push({
             id: makeId(),
             role: "system",

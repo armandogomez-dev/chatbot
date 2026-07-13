@@ -12,11 +12,18 @@ export interface Message {
   content: string;
   riskLevel?: RiskLevel;
   riskConfidence?: number;
+  specialistAlert?: boolean;
   timestamp: Date;
 }
 
 export interface ChatResponse {
   response: string;
+  risk_label: string;
+  risk_confidence: number;
+  alert_sent: boolean;
+}
+
+export interface RiskEntry {
   risk_label: string;
   risk_confidence: number;
 }
