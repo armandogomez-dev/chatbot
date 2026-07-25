@@ -1,0 +1,50 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\Windows\\OneDrive - Universidad de La Salle\\MIA\\version 1.2\\chatbot\\backend']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [32348] using WatchFiles
+INFO:     Started server process [18716]
+INFO:     Waiting for application startup.
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-es-en/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Helsinki-NLP/opus-mt-es-en/c96e2c5399ebfae4fc43d9669556b9afa74bb69d/tokenizer_config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-es-en/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-es-en/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+C:\Users\Windows\AppData\Local\Programs\Python\Python313\Lib\site-packages\transformers\models\marian\tokenization_marian.py:176: UserWarning: Recommended: pip install sacremoses.
+  warnings.warn("Recommended: pip install sacremoses.")
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-es-en/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Helsinki-NLP/opus-mt-es-en/c96e2c5399ebfae4fc43d9669556b9afa74bb69d/config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-es-en/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-es-en/resolve/main/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-es-en/resolve/main/pytorch_model.bin "HTTP/1.1 302 Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-es-en/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-es-en "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-es-en/commits/main "HTTP/1.1 200 OK"
+Loading weights:   0%|          | 0/258 [00:00<?, ?it/s]Loading weights: 100%|██████████| 258/258 [00:00<00:00, 66290.76it/s]
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-es-en/discussions?p=0 "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-es-en/commits/refs%2Fpr%2F6 "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-es-en/resolve/refs%2Fpr%2F6/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-es-en/resolve/main/generation_config.json "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Helsinki-NLP/opus-mt-es-en/c96e2c5399ebfae4fc43d9669556b9afa74bb69d/generation_config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-es-en/resolve/refs%2Fpr%2F6/model.safetensors "HTTP/1.1 302 Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Helsinki-NLP/opus-mt-en-es/5bc4493d463cf000c1f0b50f8d56886a392ed4ab/tokenizer_config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-en-es/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-en-es/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Helsinki-NLP/opus-mt-en-es/5bc4493d463cf000c1f0b50f8d56886a392ed4ab/config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/main/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/main/pytorch_model.bin "HTTP/1.1 302 Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-en-es "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-en-es/commits/main "HTTP/1.1 200 OK"
+Loading weights:   0%|          | 0/258 [00:00<?, ?it/s]Loading weights: 100%|██████████| 258/258 [00:00<00:00, 36483.28it/s]
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-en-es/discussions?p=0 "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/Helsinki-NLP/opus-mt-en-es/commits/refs%2Fpr%2F4 "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/refs%2Fpr%2F4/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/main/generation_config.json "HTTP/1.1 307 Temporary Redirect"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Helsinki-NLP/opus-mt-en-es/5bc4493d463cf000c1f0b50f8d56886a392ed4ab/generation_config.json "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: HEAD https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/refs%2Fpr%2F4/model.safetensors "HTTP/1.1 302 Found"
+Loading weights:   0%|          | 0/201 [00:00<?, ?it/s]Loading weights: 100%|██████████| 201/201 [00:00<00:00, 7822.43it/s]
+Loading weights:   0%|          | 0/131 [00:00<?, ?it/s]Loading weights: 100%|██████████| 131/131 [00:00<00:00, 5564.82it/s]
+INFO:     Application startup complete.
+WARNING:notifier:Alerta por correo omitida: SMTP no configurado (revisar variables de entorno).
+WARNING:notifier:Alerta por WhatsApp omitida: Twilio no configurado (revisar variables de entorno).

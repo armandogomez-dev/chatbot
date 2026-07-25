@@ -3,7 +3,8 @@ from pathlib import Path
 
 import torch
 from transformers import (
-    AutoTokenizer,
+    RobertaTokenizer,
+    T5Tokenizer,
     MarianMTModel,
     MarianTokenizer,
     RobertaForSequenceClassification,
@@ -11,8 +12,8 @@ from transformers import (
 )
 
 BASE_DIR = Path(__file__).parent.parent
-MODEL_CLASSIFIER_PATH = str(BASE_DIR / "modelo salo")
-MODEL_GENERATOR_PATH = str(BASE_DIR / "modelo jhon")
+MODEL_CLASSIFIER_PATH = str(BASE_DIR / "modelo salo" / "clasificador_triaje_roberta")
+MODEL_GENERATOR_PATH = str(BASE_DIR / "modelo jhon" / "Chatbot V1.4")
 
 # HuggingFace translation models (downloaded automatically on first run)
 TRANS_ES_EN = os.getenv("TRANS_ES_EN_MODEL", "Helsinki-NLP/opus-mt-es-en")
@@ -41,8 +42,8 @@ class ChatInference:
         self._marian_en_es.eval()
 
         print("Cargando clasificador (modelo salo)...")
-        self._clf_tokenizer = AutoTokenizer.from_pretrained(
-            MODEL_CLASSIFIER_PATH, use_fast=True
+        self._clf_tokenizer = RobertaTokenizer.from_pretrained(
+            MODEL_CLASSIFIER_PATH
         )
         self._classifier = RobertaForSequenceClassification.from_pretrained(
             MODEL_CLASSIFIER_PATH
@@ -50,8 +51,8 @@ class ChatInference:
         self._classifier.eval()
 
         print("Cargando generador (modelo jhon)...")
-        self._gen_tokenizer = AutoTokenizer.from_pretrained(
-            MODEL_GENERATOR_PATH, use_fast=True
+        self._gen_tokenizer = T5Tokenizer.from_pretrained(
+            MODEL_GENERATOR_PATH
         )
         self._generator = T5ForConditionalGeneration.from_pretrained(
             MODEL_GENERATOR_PATH
@@ -97,13 +98,38 @@ class ChatInference:
             )
         return self._gen_tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
-    def chat(self, text_es: str) -> tuple[str, str, float]:
-        """Full pipeline: Spanish in, Spanish out."""
+    def chat(self, text_es: str, history: list[dict] | None = None) -> tuple[str, str, float]:
+        """Full pipeline: Spanish in, Spanish out.
+        If history is provided, it is used to build a conversational prompt for the generator.
+        History is a list of dicts with keys 'role' and 'content' (in Spanish), representing
+        the conversation so far (excluding the current message).
+        """
+        # Translate current message to English for risk classification (only current message)
         text_en = self._translate_to_en(text_es)
         risk_label, confidence = self.classify(text_en)
         is_risk = risk_label == "riesgo"
-        response_en = self.generate(text_en, is_risk)
+
+        # Build conversation string in Spanish for generation
+        history_str = ""
+        if history:
+            for msg in history:
+                role = msg['role']
+                content = msg['content']
+                if role == 'user':
+                    history_str += f"Usuario: {content}\n"
+                else:  # 'assistant'
+                    history_str += f"Asistente: {content}\n"
+        history_str += f"Usuario: {text_es}\nAsistente: "
+
+        # Translate the entire history string to English for the generator
+        prompt_en = self._translate_to_en(history_str)
+
+        # Generate response in English
+        response_en = self.generate(prompt_en, is_risk)
+
+        # Translate response to Spanish
         response_es = self._translate_to_es(response_en)
+
         return response_es, risk_label, confidence
 
 

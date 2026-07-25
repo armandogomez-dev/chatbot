@@ -17,6 +17,7 @@ class ChatRequest(BaseModel):
     user_info: UserInfo = UserInfo()
     history: list[RiskEntry] = []
     alert_sent: bool = False
+    session_id: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -24,3 +25,4 @@ class ChatResponse(BaseModel):
     risk_label: str
     risk_confidence: float
     alert_sent: bool
+    session_id: str | None = None
