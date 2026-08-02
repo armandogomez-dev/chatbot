@@ -21,6 +21,7 @@ export interface ChatResponse {
   risk_label: string;
   risk_confidence: number;
   alert_sent: boolean;
+  session_id?: string;
 }
 
 export interface RiskEntry {

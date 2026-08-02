@@ -7,11 +7,21 @@ export async function sendMessage(
   userInfo: UserInfo | undefined,
   history: RiskEntry[],
   alertSent: boolean,
+  sessionId?: string,
+  newSession = false,
 ): Promise<ChatResponse> {
   const res = await fetch(`${BASE}/chat`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, user_info: userInfo, history, alert_sent: alertSent }),
+    body: JSON.stringify({
+      message,
+      user_info: userInfo,
+      history,
+      alert_sent: alertSent,
+      session_id: sessionId ?? null,
+      new_session: newSession,
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

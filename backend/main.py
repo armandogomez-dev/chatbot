@@ -66,12 +66,18 @@ async def chat(request: Request, body: ChatRequest, background_tasks: Background
     if not text:
         raise HTTPException(status_code=422, detail="El mensaje no puede estar vacío.")
 
-    # Determine session ID: from cookie, body, or generate new
-    session_id = request.cookies.get("session_id")
-    if session_id is None and body.session_id is not None:
-        session_id = body.session_id
-    if session_id is None:
-        session_id = str(uuid4())
+    # Determine session ID: from body, cookie, or generate new.
+    # If the client explicitly requests a new session, start fresh and clear
+    # the prior history for that session if it exists.
+    if body.new_session:
+        previous_session_id = body.session_id or request.cookies.get("session_id")
+        if previous_session_id is not None:
+            chat_histories.pop(previous_session_id, None)
+        session_id = body.session_id or str(uuid4())
+    else:
+        session_id = body.session_id or request.cookies.get("session_id")
+        if session_id is None:
+            session_id = str(uuid4())
 
     # Retrieve history for this session (list of messages with role and content)
     history_raw = chat_histories.get(session_id, [])

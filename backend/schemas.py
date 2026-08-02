@@ -18,6 +18,7 @@ class ChatRequest(BaseModel):
     history: list[RiskEntry] = []
     alert_sent: bool = False
     session_id: str | None = None
+    new_session: bool = False
 
 
 class ChatResponse(BaseModel):
