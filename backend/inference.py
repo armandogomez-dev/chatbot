@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 import torch
@@ -30,6 +31,7 @@ class ChatInference:
         self._marian_es_en_tok: MarianTokenizer | None = None
         self._marian_en_es: MarianMTModel | None = None
         self._marian_en_es_tok: MarianTokenizer | None = None
+        self.default_farewell_message = "Estoy aquí para servirte siempre que lo necesites."
 
     def load(self) -> None:
         print("Cargando modelos de traducción...")
@@ -98,6 +100,48 @@ class ChatInference:
             )
         return self._gen_tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
+    def _normalize_for_farewell_detection(self, text: str) -> str:
+        normalized = re.sub(r"[^a-záéíóúüñ\s]", " ", text.lower())
+        return " ".join(normalized.split())
+
+    def should_add_default_closing(self, text: str) -> bool:
+        normalized = self._normalize_for_farewell_detection(text)
+        farewell_markers = [
+            "gracias",
+            "adios",
+            "adiós",
+            "chau",
+            "chao",
+            "hasta luego",
+            "hasta la vista",
+            "hasta pronto",
+            "nos vemos",
+            "bye",
+            "desped",
+            "me voy",
+            "me retiro",
+            "termino",
+            "ya nos vemos",
+            "que tengas",
+            "que te vaya",
+            "que te vaya bien",
+            "buenas noches",
+            "buenos días",
+            "buen dia",
+            "buenas tardes",
+            "cuídate",
+            "cuidate",
+        ]
+        return any(marker in normalized for marker in farewell_markers)
+
+    def append_default_closing(self, response: str, user_text: str | None = None) -> str:
+        if user_text and self.should_add_default_closing(user_text):
+            return self.default_farewell_message
+
+        if self.should_add_default_closing(response):
+            return self.default_farewell_message
+        return response
+
     def chat(self, text_es: str, history: list[dict] | None = None) -> tuple[str, str, float]:
         """Full pipeline: Spanish in, Spanish out.
         If history is provided, it is used to build a conversational prompt for the generator.
@@ -129,6 +173,7 @@ class ChatInference:
 
         # Translate response to Spanish
         response_es = self._translate_to_es(response_en)
+        response_es = self.append_default_closing(response_es, text_es)
 
         return response_es, risk_label, confidence
 

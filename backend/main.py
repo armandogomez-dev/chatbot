@@ -109,6 +109,7 @@ async def chat(request: Request, body: ChatRequest, background_tasks: Background
     # Generate response in English
     response_en = inference.generate(prompt_en, is_risk)
     response_es = inference._translate_to_es(response_en)
+    response_es = inference.append_default_closing(response_es, text)
 
     # Prepare user message entry for storage (includes risk info)
     import time
