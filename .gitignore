@@ -13,6 +13,12 @@ venv/
 node_modules/
 dist/
 
+# Logs de procesos locales
+*.err
+*.out
+curl.txt
+.DS_Store
+
 # Modelos (archivos grandes)
 modelo jhon/
 modelo salo/

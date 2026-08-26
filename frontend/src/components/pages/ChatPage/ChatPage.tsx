@@ -23,12 +23,13 @@ export function ChatPage() {
   const [alertSent, setAlertSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState(() => makeId());
 
   async function processMessage(text: string, info: UserInfo) {
     setLoading(true);
     setError(null);
     try {
-      const data = await sendMessage(text, info, riskHistory, alertSent);
+      const data = await sendMessage(text, info, riskHistory, alertSent, sessionId, false);
       const justAlerted = data.alert_sent && !alertSent;
       const botMsg: Message = {
         id: makeId(),
@@ -41,6 +42,7 @@ export function ChatPage() {
       };
 
       setAlertSent(data.alert_sent);
+      setSessionId(data.session_id ?? sessionId);
       setRiskHistory((prev) =>
         [...prev, { risk_label: data.risk_label, risk_confidence: data.risk_confidence }].slice(
           -RISK_HISTORY_WINDOW,
@@ -92,13 +94,22 @@ export function ChatPage() {
     }
   }
 
+  async function handleStartNewSession() {
+    setMessages([]);
+    setRiskHistory([]);
+    setAlertSent(false);
+    setError(null);
+    setPendingMessage(null);
+    setSessionId(makeId());
+  }
+
   return (
     <>
       {pendingMessage !== null && !userInfo && (
         <OnboardingModal onComplete={handleOnboardingComplete} />
       )}
       <ChatLayout
-        header={<ChatHeader />}
+        header={<ChatHeader onNewSession={handleStartNewSession} />}
         body={<MessageList messages={messages} loading={loading} />}
         footer={
           <div className="flex flex-col gap-1">
