@@ -13,10 +13,15 @@ from transformers import (
 BASE_DIR = Path(__file__).parent.parent
 MODEL_CLASSIFIER_PATH = str(BASE_DIR / "modelo salo")
 MODEL_GENERATOR_PATH = str(BASE_DIR / "modelo jhon")
+MODEL_SENTIMENT_PATH = str(BASE_DIR / "sentiment_model")
+MODEL_GENERATOR_POSITIVE_PATH = str(BASE_DIR / "Chatbot_converncional_v1" / "checkpoint-8000")
 
 # HuggingFace translation models (downloaded automatically on first run)
 TRANS_ES_EN = os.getenv("TRANS_ES_EN_MODEL", "Helsinki-NLP/opus-mt-es-en")
 TRANS_EN_ES = os.getenv("TRANS_EN_ES_MODEL", "Helsinki-NLP/opus-mt-en-es")
+
+T5_PREFIX_RISK = os.getenv("T5_PREFIX_RISK", "riesgo:").strip()
+T5_PREFIX_NORMAL = os.getenv("T5_PREFIX_NORMAL", "chat:").strip()
 
 
 class ChatInference:
@@ -25,6 +30,10 @@ class ChatInference:
         self._clf_tokenizer = None
         self._generator: T5ForConditionalGeneration | None = None
         self._gen_tokenizer = None
+        self._sentiment_classifier: RobertaForSequenceClassification | None = None
+        self._sentiment_tokenizer = None
+        self._generator_positive: T5ForConditionalGeneration | None = None
+        self._gen_positive_tokenizer = None
         self._marian_es_en: MarianMTModel | None = None
         self._marian_es_en_tok: MarianTokenizer | None = None
         self._marian_en_es: MarianMTModel | None = None
@@ -40,7 +49,7 @@ class ChatInference:
         self._marian_en_es = MarianMTModel.from_pretrained(TRANS_EN_ES)
         self._marian_en_es.eval()
 
-        print("Cargando clasificador (modelo salo)...")
+        print("Cargando clasificador de riesgo (modelo salo)...")
         self._clf_tokenizer = AutoTokenizer.from_pretrained(
             MODEL_CLASSIFIER_PATH, use_fast=True
         )
@@ -57,6 +66,24 @@ class ChatInference:
             MODEL_GENERATOR_PATH
         )
         self._generator.eval()
+
+        print("Cargando clasificador de sentimiento (sentiment_model)...")
+        self._sentiment_tokenizer = AutoTokenizer.from_pretrained(
+            MODEL_SENTIMENT_PATH, use_fast=True
+        )
+        self._sentiment_classifier = RobertaForSequenceClassification.from_pretrained(
+            MODEL_SENTIMENT_PATH
+        )
+        self._sentiment_classifier.eval()
+
+        print("Cargando generador para conversación neutral/positiva (Chatbot_converncional_v1)...")
+        self._gen_positive_tokenizer = AutoTokenizer.from_pretrained(
+            MODEL_GENERATOR_POSITIVE_PATH, use_fast=True
+        )
+        self._generator_positive = T5ForConditionalGeneration.from_pretrained(
+            MODEL_GENERATOR_POSITIVE_PATH
+        )
+        self._generator_positive.eval()
         print("Modelos listos.")
 
     def _translate(self, text: str, model: MarianMTModel, tokenizer: MarianTokenizer) -> str:
@@ -83,26 +110,45 @@ class ChatInference:
         confidence: float = probs[0][idx].item()
         return label, confidence
 
-    def generate(self, text_en: str, is_risk: bool) -> str:
-        inputs = self._gen_tokenizer(
+    def classify_sentiment(self, text_en: str) -> tuple[str, float]:
+        inputs = self._sentiment_tokenizer(
             text_en, return_tensors="pt", truncation=True, max_length=512
         )
         with torch.no_grad():
-            output_ids = self._generator.generate(
+            logits = self._sentiment_classifier(**inputs).logits
+        probs = torch.softmax(logits, dim=-1)
+        idx = int(logits.argmax().item())
+        label: str = self._sentiment_classifier.config.id2label[idx]
+        confidence: float = probs[0][idx].item()
+        return label, confidence
+
+    def _generate_with(self, model: T5ForConditionalGeneration, tokenizer, text_en: str) -> str:
+        inputs = tokenizer(text_en, return_tensors="pt", truncation=True, max_length=512)
+        with torch.no_grad():
+            output_ids = model.generate(
                 **inputs,
                 max_length=200,
                 num_beams=4,
                 early_stopping=True,
                 no_repeat_ngram_size=3,
             )
-        return self._gen_tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        return tokenizer.decode(output_ids[0], skip_special_tokens=True)
+
+    def generate(self, text_en: str, is_risk: bool, sentiment_label: str) -> str:
+        # Riesgo o sentimiento negativo: modelo jhon, ya validado para estos casos.
+        # Sentimiento neutral/positivo sin riesgo: Chatbot_converncional_v1, entrenado para eso.
+        if is_risk or sentiment_label == "negative":
+            prefix = T5_PREFIX_RISK if is_risk else T5_PREFIX_NORMAL
+            return self._generate_with(self._generator, self._gen_tokenizer, f"{prefix} {text_en}")
+        return self._generate_with(self._generator_positive, self._gen_positive_tokenizer, text_en)
 
     def chat(self, text_es: str) -> tuple[str, str, float]:
         """Full pipeline: Spanish in, Spanish out."""
         text_en = self._translate_to_en(text_es)
         risk_label, confidence = self.classify(text_en)
         is_risk = risk_label == "riesgo"
-        response_en = self.generate(text_en, is_risk)
+        sentiment_label, _ = self.classify_sentiment(text_en)
+        response_en = self.generate(text_en, is_risk, sentiment_label)
         response_es = self._translate_to_es(response_en)
         return response_es, risk_label, confidence
 

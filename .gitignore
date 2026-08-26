@@ -16,6 +16,9 @@ dist/
 # Modelos (archivos grandes)
 modelo jhon/
 modelo salo/
+sentiment_model/
+Chatbot_converncional_v1/
 *.bin
 *.safetensors
 *.pt
+*.zip

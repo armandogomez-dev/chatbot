@@ -21,7 +21,7 @@ RISK_ALERT_THRESHOLD = float(os.getenv("RISK_ALERT_THRESHOLD", "0.75"))
 # Se dispara la alerta al especialista cuando, de los últimos RISK_ALERT_WINDOW
 # mensajes (incluyendo el actual), al menos RISK_ALERT_MIN_COUNT son de alto riesgo.
 RISK_ALERT_WINDOW = int(os.getenv("RISK_ALERT_WINDOW", "5"))
-RISK_ALERT_MIN_COUNT = int(os.getenv("RISK_ALERT_MIN_COUNT", "2"))
+RISK_ALERT_MIN_COUNT = int(os.getenv("RISK_ALERT_MIN_COUNT", "3"))
 
 
 def _is_high_risk(label: str, confidence: float) -> bool:
