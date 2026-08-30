@@ -6,15 +6,16 @@ import { Spinner } from "../../atoms/Spinner";
 interface Props {
   onSend: (message: string) => void;
   loading: boolean;
+  disabled?: boolean;
 }
 
-export function ChatInput({ onSend, loading }: Props) {
+export function ChatInput({ onSend, loading, disabled = false }: Props) {
   const [value, setValue] = useState("");
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = value.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed || loading || disabled) return;
     onSend(trimmed);
     setValue("");
   }
@@ -24,11 +25,11 @@ export function ChatInput({ onSend, loading }: Props) {
       <Input
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Escribe un mensaje..."
-        disabled={loading}
+        placeholder={disabled ? "Chat remitido a un profesional" : "Escribe un mensaje..."}
+        disabled={loading || disabled}
         autoFocus
       />
-      <Button type="submit" disabled={loading || !value.trim()} className="shrink-0">
+      <Button type="submit" disabled={loading || disabled || !value.trim()} className="shrink-0">
         {loading ? <Spinner /> : "Enviar"}
       </Button>
     </form>

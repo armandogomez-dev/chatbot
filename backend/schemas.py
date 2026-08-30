@@ -26,4 +26,5 @@ class ChatResponse(BaseModel):
     risk_label: str
     risk_confidence: float
     alert_sent: bool
+    chat_blocked: bool = False
     session_id: str | None = None

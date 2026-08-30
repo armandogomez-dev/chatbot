@@ -21,6 +21,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [riskHistory, setRiskHistory] = useState<RiskEntry[]>([]);
   const [alertSent, setAlertSent] = useState(false);
+  const [chatBlocked, setChatBlocked] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState(() => makeId());
@@ -41,7 +42,9 @@ export function ChatPage() {
         timestamp: new Date(),
       };
 
+      const blocked = Boolean(data.chat_blocked ?? data.alert_sent);
       setAlertSent(data.alert_sent);
+      setChatBlocked(blocked);
       setSessionId(data.session_id ?? sessionId);
       setRiskHistory((prev) =>
         [...prev, { risk_label: data.risk_label, risk_confidence: data.risk_confidence }].slice(
@@ -69,6 +72,8 @@ export function ChatPage() {
   }
 
   async function handleSend(text: string) {
+    if (chatBlocked) return;
+
     const userMsg: Message = {
       id: makeId(),
       role: "user",
@@ -98,6 +103,7 @@ export function ChatPage() {
     setMessages([]);
     setRiskHistory([]);
     setAlertSent(false);
+    setChatBlocked(false);
     setError(null);
     setPendingMessage(null);
     setSessionId(makeId());
@@ -114,7 +120,12 @@ export function ChatPage() {
         footer={
           <div className="flex flex-col gap-1">
             {error && <p className="text-xs text-red-500">{error}</p>}
-            <ChatInput onSend={handleSend} loading={loading} />
+            {chatBlocked && (
+              <p className="text-xs text-amber-700">
+                Este chat fue remitido a un profesional y ya no acepta más mensajes.
+              </p>
+            )}
+            <ChatInput onSend={handleSend} loading={loading} disabled={chatBlocked} />
           </div>
         }
       />

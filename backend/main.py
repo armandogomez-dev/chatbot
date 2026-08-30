@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from typing import Dict, List
 from uuid import uuid4
@@ -26,9 +27,26 @@ RISK_ALERT_THRESHOLD = float(os.getenv("RISK_ALERT_THRESHOLD", "0.75"))
 RISK_ALERT_WINDOW = int(os.getenv("RISK_ALERT_WINDOW", "5"))
 RISK_ALERT_MIN_COUNT = int(os.getenv("RISK_ALERT_MIN_COUNT", "3"))
 
+PROFESSIONAL_REQUEST_PHRASE = "necesito hablar con un profesional"
+SUPPORT_AGENT_REMINDER = (
+
+    'Recuerda que solo soy un agente de apoyo. Si tienes una emergencia y '
+    'requieres hablar con un profesional solo escribe la frase: '
+    '"Necesito hablar con un profesional"'
+)
+
 
 def _is_high_risk(label: str, confidence: float) -> bool:
     return label == "riesgo" and confidence >= RISK_ALERT_THRESHOLD
+
+
+def _normalize_user_text(text: str) -> str:
+    normalized = re.sub(r"[^a-záéíóúüñ\s]", " ", text.lower())
+    return " ".join(normalized.split())
+
+
+def _requests_professional_contact(text: str) -> bool:
+    return PROFESSIONAL_REQUEST_PHRASE in _normalize_user_text(text)
 
 
 # In-memory store for chat histories: session_id -> list of messages
@@ -36,6 +54,7 @@ def _is_high_risk(label: str, confidence: float) -> bool:
 # We'll keep it simple and just store the last N messages (where N is RISK_ALERT_WINDOW * 2?).
 # But we want to keep the entire conversation for context? Let's store the last 20 messages.
 chat_histories: Dict[str, List[dict]] = {}
+blocked_sessions: set[str] = set()
 MAX_HISTORY_LENGTH = 20  # keep last 20 messages (10 turns)
 
 
@@ -73,11 +92,20 @@ async def chat(request: Request, body: ChatRequest, background_tasks: Background
         previous_session_id = body.session_id or request.cookies.get("session_id")
         if previous_session_id is not None:
             chat_histories.pop(previous_session_id, None)
+            blocked_sessions.discard(previous_session_id)
         session_id = body.session_id or str(uuid4())
     else:
         session_id = body.session_id or request.cookies.get("session_id")
         if session_id is None:
             session_id = str(uuid4())
+
+    if session_id in blocked_sessions or body.alert_sent:
+        raise HTTPException(
+            status_code=403,
+            detail="Este chat ha sido remitido a un profesional y ya no acepta más mensajes.",
+        )
+
+    is_first_turn = not chat_histories.get(session_id)
 
     # Compute risk and sentiment for the current user message (needed for storage, alert and routing)
     text_en = inference._translate_to_en(text)
@@ -90,6 +118,8 @@ async def chat(request: Request, body: ChatRequest, background_tasks: Background
     response_en = inference.generate(text_en, is_risk, sentiment_label)
     response_es = inference._translate_to_es(response_en)
     response_es = inference.append_default_closing(response_es, text)
+    if is_first_turn:
+        response_es = f"{response_es}\n\n{SUPPORT_AGENT_REMINDER}"
 
     # Prepare user message entry for storage (includes risk info)
     import time
@@ -128,15 +158,30 @@ async def chat(request: Request, body: ChatRequest, background_tasks: Background
     recent_user_messages = user_messages[-RISK_ALERT_WINDOW:]
     high_risk_count = sum(1 for msg in recent_user_messages if _is_high_risk(msg["risk_label"], msg["risk_confidence"]))
 
+    direct_professional_request = _requests_professional_contact(text)
     alert_sent = body.alert_sent
-    if not body.alert_sent and high_risk_count >= RISK_ALERT_MIN_COUNT:
-        print(f"ALERT TRIGGERED: high_risk_count={high_risk_count}, threshold={RISK_ALERT_MIN_COUNT}")
+    should_alert = direct_professional_request or high_risk_count >= RISK_ALERT_MIN_COUNT
+    if not body.alert_sent and should_alert:
+        print(
+            "ALERT TRIGGERED: "
+            f"direct_professional_request={direct_professional_request}, "
+            f"high_risk_count={high_risk_count}, threshold={RISK_ALERT_MIN_COUNT}"
+        )
         ui = body.user_info
-        background_tasks.add_task(send_email_alert, text, risk_confidence, ui.name, ui.phone, ui.email)
-        background_tasks.add_task(send_whatsapp_alert, text, risk_confidence, ui.name, ui.phone, ui.email)
+        alert_confidence = 1.0 if direct_professional_request else risk_confidence
+        background_tasks.add_task(send_email_alert, text, alert_confidence, ui.name, ui.phone, ui.email)
+        background_tasks.add_task(send_whatsapp_alert, text, alert_confidence, ui.name, ui.phone, ui.email)
         alert_sent = True
+        blocked_sessions.add(session_id)
     else:
-        print(f"ALERT CHECK: high_risk_count={high_risk_count}, threshold={RISK_ALERT_MIN_COUNT}, alert_sent={alert_sent}")
+        print(
+            "ALERT CHECK: "
+            f"direct_professional_request={direct_professional_request}, "
+            f"high_risk_count={high_risk_count}, threshold={RISK_ALERT_MIN_COUNT}, "
+            f"alert_sent={alert_sent}"
+        )
+
+    chat_blocked = session_id in blocked_sessions or alert_sent
 
     # Prepare JSON response and set cookie
     response_content = {
@@ -144,6 +189,7 @@ async def chat(request: Request, body: ChatRequest, background_tasks: Background
         "risk_label": risk_label,
         "risk_confidence": risk_confidence,
         "alert_sent": alert_sent,
+        "chat_blocked": chat_blocked,
         "session_id": session_id
     }
     response = JSONResponse(content=response_content)
