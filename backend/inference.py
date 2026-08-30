@@ -24,6 +24,22 @@ TRANS_EN_ES = os.getenv("TRANS_EN_ES_MODEL", "Helsinki-NLP/opus-mt-en-es")
 T5_PREFIX_RISK = os.getenv("T5_PREFIX_RISK", "riesgo:").strip()
 T5_PREFIX_NORMAL = os.getenv("T5_PREFIX_NORMAL", "chat:").strip()
 
+# Marcadores de basura que el checkpoint del generador conversacional (sobreajustado)
+# suele soltar al final de una respuesta, después de una o dos oraciones coherentes:
+# markdown residual y disclaimers tipo "as an AI language model". Todo lo que aparezca
+# a partir del primero de estos se recorta.
+_GENERATION_GARBAGE_MARKERS = ("###", "**", "---")
+_GENERATION_DISCLAIMER_PHRASES = (
+    "as an ai language model",
+    "as an ai,",
+    "as a language model",
+    "i'm just an ai",
+    "i am an ai",
+    "i don't have access to",
+    "i don't have a computer",
+)
+_MIN_VALID_GENERATION_LENGTH = 3
+
 
 class ChatInference:
     def __init__(self) -> None:
@@ -40,6 +56,9 @@ class ChatInference:
         self._marian_en_es: MarianMTModel | None = None
         self._marian_en_es_tok: MarianTokenizer | None = None
         self.default_farewell_message = "Estoy aquí para servirte siempre que lo necesites."
+        self.default_generation_fallback_en = (
+            "I'm here for you. Tell me a bit more about how you're feeling."
+        )
 
     def load(self) -> None:
         print("Cargando modelos de traducción...")
@@ -124,6 +143,33 @@ class ChatInference:
         confidence: float = probs[0][idx].item()
         return label, confidence
 
+    def _strip_generation_artifacts(self, text: str) -> str:
+        """Corta la respuesta en el primer marcador de basura (markdown residual o
+        disclaimer de IA) que suelta el checkpoint sobreajustado, y descarta una
+        oración final que quede colgando en ':' (p. ej. "...today:") por el corte."""
+        lower = text.lower()
+        cut_at = len(text)
+        for marker in _GENERATION_GARBAGE_MARKERS:
+            idx = text.find(marker)
+            if idx != -1:
+                cut_at = min(cut_at, idx)
+        for phrase in _GENERATION_DISCLAIMER_PHRASES:
+            idx = lower.find(phrase)
+            if idx != -1:
+                cut_at = min(cut_at, idx)
+        cleaned = text[:cut_at].rstrip()
+
+        if cleaned.endswith(":"):
+            sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+            if sentences and sentences[-1].rstrip().endswith(":"):
+                sentences = sentences[:-1]
+            cleaned = " ".join(sentences).strip()
+
+        return cleaned
+
+    def _is_degenerate_generation(self, text: str) -> bool:
+        return len(text.strip()) < _MIN_VALID_GENERATION_LENGTH or not re.search(r"[A-Za-z]{2,}", text)
+
     def _generate_with(self, model: T5ForConditionalGeneration, tokenizer, text_en: str) -> str:
         inputs = tokenizer(text_en, return_tensors="pt", truncation=True, max_length=512)
         with torch.no_grad():
@@ -134,15 +180,22 @@ class ChatInference:
                 early_stopping=True,
                 no_repeat_ngram_size=3,
             )
-        return tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        raw = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        return self._strip_generation_artifacts(raw)
 
     def generate(self, text_en: str, is_risk: bool, sentiment_label: str) -> str:
         # Riesgo o sentimiento negativo: modelo jhon, ya validado para estos casos.
-        # Sentimiento neutral/positivo sin riesgo: Chatbot_converncional_v1, entrenado para eso.
+        # Sentimiento neutral/positivo sin riesgo: Chatbot_converncional_v1, entrenado para eso
+        # pero sobreajustado (ver _strip_generation_artifacts / _is_degenerate_generation).
         if is_risk or sentiment_label == "negative":
             prefix = T5_PREFIX_RISK if is_risk else T5_PREFIX_NORMAL
-            return self._generate_with(self._generator, self._gen_tokenizer, f"{prefix} {text_en}")
-        return self._generate_with(self._generator_positive, self._gen_positive_tokenizer, text_en)
+            response = self._generate_with(self._generator, self._gen_tokenizer, f"{prefix} {text_en}")
+        else:
+            response = self._generate_with(self._generator_positive, self._gen_positive_tokenizer, text_en)
+
+        if self._is_degenerate_generation(response):
+            response = self.default_generation_fallback_en
+        return response
 
     def _normalize_for_farewell_detection(self, text: str) -> str:
         normalized = re.sub(r"[^a-záéíóúüñ\s]", " ", text.lower())
@@ -184,11 +237,9 @@ class ChatInference:
             return self.default_farewell_message
         return response
 
-    def chat(self, text_es: str, history: list[dict] | None = None) -> tuple[str, str, float]:
-        """Full pipeline: Spanish in, Spanish out.
-        If history is provided, it is used to build a conversational prompt for the generator.
-        History is a list of dicts with keys 'role' and 'content' (in Spanish), representing
-        the conversation so far (excluding the current message).
+    def chat(self, text_es: str) -> tuple[str, str, float]:
+        """Full pipeline: Spanish in, Spanish out. Uses only the current message —
+        the generators are fine-tuned on single-turn inputs, not conversation history.
         """
         # Translate current message to English for risk/sentiment classification (current message only)
         text_en = self._translate_to_en(text_es)
@@ -196,23 +247,11 @@ class ChatInference:
         is_risk = risk_label == "riesgo"
         sentiment_label, _ = self.classify_sentiment(text_en)
 
-        # Build conversation string in Spanish for generation
-        history_str = ""
-        if history:
-            for msg in history:
-                role = msg['role']
-                content = msg['content']
-                if role == 'user':
-                    history_str += f"Usuario: {content}\n"
-                else:  # 'assistant'
-                    history_str += f"Asistente: {content}\n"
-        history_str += f"Usuario: {text_es}\nAsistente: "
-
-        # Translate the entire history string to English for the generator
-        prompt_en = self._translate_to_en(history_str)
-
-        # Generate response in English
-        response_en = self.generate(prompt_en, is_risk, sentiment_label)
+        # Generate response in English from the current message only. The generators were
+        # fine-tuned on single-turn inputs ("riesgo: <msg>" / "chat: <msg>"), not multi-turn
+        # "Usuario:/Asistente:" transcripts, so feeding them the full history makes them echo
+        # the prompt back instead of producing a new reply.
+        response_en = self.generate(text_en, is_risk, sentiment_label)
 
         # Translate response to Spanish
         response_es = self._translate_to_es(response_en)

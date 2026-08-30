@@ -79,36 +79,15 @@ async def chat(request: Request, body: ChatRequest, background_tasks: Background
         if session_id is None:
             session_id = str(uuid4())
 
-    # Retrieve history for this session (list of messages with role and content)
-    history_raw = chat_histories.get(session_id, [])
-
     # Compute risk and sentiment for the current user message (needed for storage, alert and routing)
     text_en = inference._translate_to_en(text)
     risk_label, risk_confidence = inference.classify(text_en)
     is_risk = risk_label == "riesgo"
     sentiment_label, _ = inference.classify_sentiment(text_en)
 
-    # Build conversation history string for generation (using only role and content from history_raw)
-    history_str = ""
-    for msg in history_raw:
-        role = msg['role']
-        content = msg['content']
-        if role == 'user':
-            history_str += f"Usuario: {content}\n"
-        else:  # 'assistant'
-            history_str += f"Asistente: {content}\n"
-    history_str += f"Usuario: {text}\nAsistente: "
-
-    # Translate the entire history string to English for the generator
-    try:
-        prompt_en = inference._translate_to_en(history_str)
-    except Exception as e:
-        # Fallback to translating only the current message if history translation fails
-        print(f"Translation error for history: {e}. Falling back to current message only.")
-        prompt_en = text_en
-
-    # Generate response in English
-    response_en = inference.generate(prompt_en, is_risk, sentiment_label)
+    # Generate response in English from the current message only (the generators were
+    # fine-tuned on single-turn inputs, not multi-turn "Usuario:/Asistente:" transcripts).
+    response_en = inference.generate(text_en, is_risk, sentiment_label)
     response_es = inference._translate_to_es(response_en)
     response_es = inference.append_default_closing(response_es, text)
 
