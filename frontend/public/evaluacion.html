@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Evaluación clínica · Chatbox de apoyo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --surface: #ffffff;
+    --ink: #1e2a28;
+    --muted: #5c6b67;
+    --accent: #3f6f63;
+    --accent-ink: #ffffff;
+    --accent-soft: #e3ece8;
+    --line: #dce3df;
+    --star-off: #d7ddd9;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121715;
+      --surface: #1a201e;
+      --ink: #e7ece9;
+      --muted: #93a29c;
+      --accent: #6fbfa8;
+      --accent-ink: #0d1a16;
+      --accent-soft: #1f2e29;
+      --line: #2a322f;
+      --star-off: #384039;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121715;
+    --surface: #1a201e;
+    --ink: #e7ece9;
+    --muted: #93a29c;
+    --accent: #6fbfa8;
+    --accent-ink: #0d1a16;
+    --accent-soft: #1f2e29;
+    --line: #2a322f;
+    --star-off: #384039;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    line-height: 1.55;
+    padding: 48px 20px 80px;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  .eyebrow {
+    font-size: 12.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: clamp(28px, 4vw, 36px);
+    line-height: 1.15;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+  .intro {
+    color: var(--muted);
+    font-size: 15.5px;
+    max-width: 56ch;
+    margin: 0 0 36px;
+  }
+  form {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 8px;
+  }
+  .field {
+    padding: 22px 24px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .field:last-of-type { border-bottom: none; }
+  .field-label {
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .field-desc {
+    color: var(--muted);
+    font-size: 13.5px;
+    margin-top: -6px;
+  }
+  .stars {
+    display: flex;
+    flex-direction: row-reverse;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+  .stars input { position: absolute; opacity: 0; pointer-events: none; }
+  .stars label {
+    font-size: 30px;
+    line-height: 1;
+    color: var(--star-off);
+    cursor: pointer;
+    transition: color .12s ease;
+  }
+  .stars label::before { content: "★"; }
+  .stars input:checked ~ label,
+  .stars label:hover,
+  .stars label:hover ~ label {
+    color: var(--accent);
+  }
+  .stars:hover label { color: var(--star-off); }
+  .stars:hover input:checked ~ label,
+  .stars:hover label:hover,
+  .stars:hover label:hover ~ label {
+    color: var(--accent);
+  }
+
+  input[type="text"], textarea {
+    font-family: inherit;
+    font-size: 14.5px;
+    color: var(--ink);
+    background: var(--accent-soft);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    resize: vertical;
+  }
+  textarea { min-height: 110px; }
+  input[type="text"]:focus, textarea:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .submit-row { padding: 22px 24px 24px; }
+  button {
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border: none;
+    border-radius: 10px;
+    padding: 13px 26px;
+    cursor: pointer;
+    width: 100%;
+  }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .error {
+    color: #b3432b;
+    font-size: 13.5px;
+    margin-top: 4px;
+    min-height: 1em;
+  }
+
+  .done {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 48px 32px;
+    text-align: center;
+  }
+  .done .mark {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px;
+    margin: 0 auto 20px;
+  }
+  .done h2 {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: 22px;
+    margin: 0 0 8px;
+  }
+  .done p { color: var(--muted); margin: 0; font-size: 14.5px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Chatbox de apoyo · Tesis de maestría</div>
+  <h1>Evaluación clínica de la herramienta</h1>
+  <p class="intro">
+    Gracias por probar el chatbox. Tu evaluación como profesional en psicología es la
+    parte más importante de esta validación. Califica cada aspecto de 1 a 5 estrellas
+    según tu experiencia probando la herramienta, y deja cualquier observación abierta
+    que consideres relevante.
+  </p>
+
+  <form id="form">
+    <div class="field">
+      <label class="field-label" for="rater_name">Tu nombre (opcional)</label>
+      <input type="text" id="rater_name" name="rater_name" placeholder="Nombre y apellido" />
+    </div>
+
+    <div class="field">
+      <span class="field-label">Precisión en la detección de riesgo</span>
+      <span class="field-desc">¿Qué tan bien identificó el sistema mensajes de riesgo suicida/autolesión frente a mensajes sin riesgo?</span>
+      <div class="stars" data-field="risk_detection">
+        <input type="radio" id="risk_detection-5" name="risk_detection" value="5"><label for="risk_detection-5"></label>
+        <input type="radio" id="risk_detection-4" name="risk_detection" value="4"><label for="risk_detection-4"></label>
+        <input type="radio" id="risk_detection-3" name="risk_detection" value="3"><label for="risk_detection-3"></label>
+        <input type="radio" id="risk_detection-2" name="risk_detection" value="2"><label for="risk_detection-2"></label>
+        <input type="radio" id="risk_detection-1" name="risk_detection" value="1"><label for="risk_detection-1"></label>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Empatía y calidez de las respuestas</span>
+      <span class="field-desc">¿El tono de las respuestas se sintió empático y contenedor?</span>
+      <div class="stars" data-field="empathy">
+        <input type="radio" id="empathy-5" name="empathy" value="5"><label for="empathy-5"></label>
+        <input type="radio" id="empathy-4" name="empathy" value="4"><label for="empathy-4"></label>
+        <input type="radio" id="empathy-3" name="empathy" value="3"><label for="empathy-3"></label>
+        <input type="radio" id="empathy-2" name="empathy" value="2"><label for="empathy-2"></label>
+        <input type="radio" id="empathy-1" name="empathy" value="1"><label for="empathy-1"></label>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Coherencia y pertinencia clínica</span>
+      <span class="field-desc">¿Las respuestas fueron coherentes con el mensaje del usuario y clínicamente apropiadas?</span>
+      <div class="stars" data-field="coherence">
+        <input type="radio" id="coherence-5" name="coherence" value="5"><label for="coherence-5"></label>
+        <input type="radio" id="coherence-4" name="coherence" value="4"><label for="coherence-4"></label>
+        <input type="radio" id="coherence-3" name="coherence" value="3"><label for="coherence-3"></label>
+        <input type="radio" id="coherence-2" name="coherence" value="2"><label for="coherence-2"></label>
+        <input type="radio" id="coherence-1" name="coherence" value="1"><label for="coherence-1"></label>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Claridad del lenguaje</span>
+      <span class="field-desc">¿El lenguaje usado fue claro y comprensible para un usuario en crisis?</span>
+      <div class="stars" data-field="clarity">
+        <input type="radio" id="clarity-5" name="clarity" value="5"><label for="clarity-5"></label>
+        <input type="radio" id="clarity-4" name="clarity" value="4"><label for="clarity-4"></label>
+        <input type="radio" id="clarity-3" name="clarity" value="3"><label for="clarity-3"></label>
+        <input type="radio" id="clarity-2" name="clarity" value="2"><label for="clarity-2"></label>
+        <input type="radio" id="clarity-1" name="clarity" value="1"><label for="clarity-1"></label>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Utilidad general como herramienta de apoyo</span>
+      <span class="field-desc">En general, ¿qué tan útil te parece esta herramienta como primer punto de contacto?</span>
+      <div class="stars" data-field="usefulness">
+        <input type="radio" id="usefulness-5" name="usefulness" value="5"><label for="usefulness-5"></label>
+        <input type="radio" id="usefulness-4" name="usefulness" value="4"><label for="usefulness-4"></label>
+        <input type="radio" id="usefulness-3" name="usefulness" value="3"><label for="usefulness-3"></label>
+        <input type="radio" id="usefulness-2" name="usefulness" value="2"><label for="usefulness-2"></label>
+        <input type="radio" id="usefulness-1" name="usefulness" value="1"><label for="usefulness-1"></label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="observations">Observaciones</label>
+      <span class="field-desc">Comentarios abiertos: aciertos, riesgos que notaste, sugerencias de mejora, etc.</span>
+      <textarea id="observations" name="observations" placeholder="Escribe aquí tus observaciones..."></textarea>
+    </div>
+
+    <div class="submit-row">
+      <div class="error" id="error"></div>
+      <button type="submit" id="submit-btn">Enviar evaluación</button>
+    </div>
+  </form>
+
+  <div class="done" id="done" hidden>
+    <div class="mark">✓</div>
+    <h2>¡Gracias por tu evaluación!</h2>
+    <p>Tu retroalimentación quedó registrada y será parte de la validación de esta tesis.</p>
+  </div>
+</div>
+
+<script>
+  const form = document.getElementById("form");
+  const errorEl = document.getElementById("error");
+  const btn = document.getElementById("submit-btn");
+  const criteria = ["risk_detection", "empathy", "coherence", "clarity", "usefulness"];
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorEl.textContent = "";
+
+    const data = new FormData(form);
+    const missing = criteria.filter((c) => !data.get(c));
+    if (missing.length) {
+      errorEl.textContent = "Por favor califica todos los aspectos antes de enviar.";
+      return;
+    }
+
+    const payload = {
+      rater_name: data.get("rater_name") || "",
+      observations: data.get("observations") || "",
+    };
+    for (const c of criteria) payload[c] = parseInt(data.get(c), 10);
+
+    btn.disabled = true;
+    btn.textContent = "Enviando...";
+    try {
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("request failed");
+      form.hidden = true;
+      document.getElementById("done").hidden = false;
+    } catch (err) {
+      errorEl.textContent = "No se pudo enviar la evaluación. Revisa tu conexión e intenta de nuevo.";
+      btn.disabled = false;
+      btn.textContent = "Enviar evaluación";
+    }
+  });
+</script>
+</body>
+</html>

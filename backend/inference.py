@@ -1,8 +1,10 @@
 import os
+import random
 import re
 from pathlib import Path
 
 import torch
+from sentence_transformers import SentenceTransformer, util
 from transformers import (
     AutoTokenizer,
     MarianMTModel,
@@ -12,10 +14,21 @@ from transformers import (
 )
 
 BASE_DIR = Path(__file__).parent.parent
-MODEL_CLASSIFIER_PATH = str(BASE_DIR / "modelo salo")
-MODEL_GENERATOR_PATH = str(BASE_DIR / "modelo jhon")
-MODEL_SENTIMENT_PATH = str(BASE_DIR / "sentiment_model")
-MODEL_GENERATOR_POSITIVE_PATH = str(BASE_DIR / "Chatbot_converncional_v1" / "checkpoint-8000")
+
+# En local, cada modelo se carga desde su carpeta del repo. En producción (Railway) los
+# pesos no viven en git (son ~1.2GB) — estas env vars apuntan en su lugar a un repo de
+# Hugging Face Hub (p. ej. "usuario/chatbox-modelo-salo"); si el repo es privado, además
+# hace falta la env var HF_TOKEN, que transformers/huggingface_hub leen automáticamente.
+MODEL_CLASSIFIER_PATH = os.getenv("MODEL_CLASSIFIER_REPO", str(BASE_DIR / "modelo salo"))
+MODEL_GENERATOR_PATH = os.getenv("MODEL_GENERATOR_REPO", str(BASE_DIR / "modelo jhon"))
+MODEL_SENTIMENT_PATH = os.getenv("MODEL_SENTIMENT_REPO", str(BASE_DIR / "sentiment_model"))
+
+# Modelo de embeddings multilingüe (no se reentrena, solo se usa para medir similitud de
+# significado) usado por la red de seguridad de riesgo — ver más abajo.
+RISK_EMBEDDING_MODEL = os.getenv(
+    "RISK_EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+)
+RISK_SIMILARITY_THRESHOLD = float(os.getenv("RISK_SIMILARITY_THRESHOLD", "0.65"))
 
 # HuggingFace translation models (downloaded automatically on first run)
 TRANS_ES_EN = os.getenv("TRANS_ES_EN_MODEL", "Helsinki-NLP/opus-mt-es-en")
@@ -24,10 +37,9 @@ TRANS_EN_ES = os.getenv("TRANS_EN_ES_MODEL", "Helsinki-NLP/opus-mt-en-es")
 T5_PREFIX_RISK = os.getenv("T5_PREFIX_RISK", "riesgo:").strip()
 T5_PREFIX_NORMAL = os.getenv("T5_PREFIX_NORMAL", "chat:").strip()
 
-# Marcadores de basura que el checkpoint del generador conversacional (sobreajustado)
-# suele soltar al final de una respuesta, después de una o dos oraciones coherentes:
-# markdown residual y disclaimers tipo "as an AI language model". Todo lo que aparezca
-# a partir del primero de estos se recorta.
+# Marcadores de basura que el generador a veces suelta al final de una respuesta,
+# después de una o dos oraciones coherentes: markdown residual y disclaimers tipo
+# "as an AI language model". Todo lo que aparezca a partir del primero de estos se recorta.
 _GENERATION_GARBAGE_MARKERS = ("###", "**", "---")
 _GENERATION_DISCLAIMER_PHRASES = (
     "as an ai language model",
@@ -40,6 +52,46 @@ _GENERATION_DISCLAIMER_PHRASES = (
 )
 _MIN_VALID_GENERATION_LENGTH = 3
 
+# El generador de riesgo a veces repite el prefijo del prompt ("riesgo:"/"chat:")
+# como si fuera parte de su propia respuesta; nunca debe llegar así al usuario.
+_PROMPT_PREFIX_ECHO_MARKERS = ("riesgo:", "chat:")
+
+# Red de seguridad por similitud semántica sobre el texto en español ORIGINAL (antes de
+# traducir). El clasificador ML (modelo salo) puede fallar en ideación suicida/autolesión
+# pasiva o poco explícita (falsos negativos verificados en pruebas reales: "sería más fácil
+# para todos si yo no estuviera" → 92% "sin riesgo"; "me siento mal con ganas de hacerme
+# daño" → 95% "sin riesgo"). En vez de una lista de frases exactas (frágil: cualquier
+# parafraseo nuevo se escapa), se mide qué tan cerca está el significado del mensaje del de
+# estas frases ancla usando un modelo de embeddings ya entrenado (no se entrena nada acá).
+# Esto generaliza a paráfrasis no vistas ("tengo ganas de hacerme daño", "pienso en
+# lastimarme", "me quiero cortar" caen todas cerca en significado). Nunca degrada una
+# detección de riesgo que el modelo ya hizo por su cuenta, solo corrige falsos negativos.
+# Umbral calibrado a mano (ver RISK_SIMILARITY_THRESHOLD): con el modelo mpnet-base-v2,
+# los casos de riesgo verificados dieron 0.63–0.95 de similitud y los mensajes benignos de
+# control se quedaron en ≤0.62, con margen hasta 0.65.
+_RISK_ANCHOR_SENTENCES = (
+    "A veces pienso que sería mejor si yo no estuviera aquí.",
+    "Siento que ya no vale la pena seguir viviendo.",
+    "No le encuentro sentido a seguir con mi vida.",
+    "Tengo ganas de hacerme daño.",
+    "Pienso en lastimarme a mí mismo.",
+    "Quiero terminar con todo de una vez.",
+    "A veces pienso en quitarme la vida.",
+    "Siento que soy una carga para todos los que me rodean.",
+    "Ya no aguanto más esta situación, quiero desaparecer.",
+    "Nadie notaría si dejo de existir.",
+    "He pensado en maneras de hacerme daño.",
+    "Quiero morirme y que todo esto acabe.",
+    "No tengo ganas de vivir un día más.",
+    "Estoy pensando en suicidarme.",
+    "Me quiero cortar para sentir algo diferente.",
+    "Siento que todos estarían mejor sin mí.",
+    "No veo ninguna salida a lo que estoy viviendo.",
+    "A veces fantaseo con no despertar mañana.",
+    "Ya no quiero seguir luchando, quiero rendirme por completo.",
+    "Pienso en hacerme daño cuando me siento así de mal.",
+)
+
 
 class ChatInference:
     def __init__(self) -> None:
@@ -49,13 +101,17 @@ class ChatInference:
         self._gen_tokenizer = None
         self._sentiment_classifier: RobertaForSequenceClassification | None = None
         self._sentiment_tokenizer = None
-        self._generator_positive: T5ForConditionalGeneration | None = None
-        self._gen_positive_tokenizer = None
         self._marian_es_en: MarianMTModel | None = None
         self._marian_es_en_tok: MarianTokenizer | None = None
         self._marian_en_es: MarianMTModel | None = None
         self._marian_en_es_tok: MarianTokenizer | None = None
-        self.default_farewell_message = "Estoy aquí para servirte siempre que lo necesites."
+        self._risk_embedder: SentenceTransformer | None = None
+        self._risk_anchor_embeddings = None
+        self.default_farewell_messages = (
+            "Estoy aquí para servirte siempre que lo necesites.",
+            "Fue un gusto acompañarte. Vuelve cuando quieras hablar.",
+            "Aquí estaré cuando lo necesites. Cuídate mucho.",
+        )
         self.default_generation_fallback_en = (
             "I'm here for you. Tell me a bit more about how you're feeling."
         )
@@ -97,14 +153,11 @@ class ChatInference:
         )
         self._sentiment_classifier.eval()
 
-        print("Cargando generador para conversación neutral/positiva (Chatbot_converncional_v1)...")
-        self._gen_positive_tokenizer = AutoTokenizer.from_pretrained(
-            MODEL_GENERATOR_POSITIVE_PATH, use_fast=True
+        print("Cargando modelo de embeddings para red de seguridad de riesgo...")
+        self._risk_embedder = SentenceTransformer(RISK_EMBEDDING_MODEL)
+        self._risk_anchor_embeddings = self._risk_embedder.encode(
+            list(_RISK_ANCHOR_SENTENCES), convert_to_tensor=True, normalize_embeddings=True
         )
-        self._generator_positive = T5ForConditionalGeneration.from_pretrained(
-            MODEL_GENERATOR_POSITIVE_PATH
-        )
-        self._generator_positive.eval()
         print("Modelos listos.")
 
     def _translate(self, text: str, model: MarianMTModel, tokenizer: MarianTokenizer) -> str:
@@ -143,6 +196,31 @@ class ChatInference:
         confidence: float = probs[0][idx].item()
         return label, confidence
 
+    def _max_risk_similarity(self, text_es: str) -> float:
+        """Similitud coseno (0–1) entre el significado del mensaje y la frase ancla de
+        riesgo más parecida. No es una probabilidad calibrada, solo una medida de cercanía
+        semántica — de ahí el umbral calibrado a mano (RISK_SIMILARITY_THRESHOLD)."""
+        embedding = self._risk_embedder.encode(
+            text_es, convert_to_tensor=True, normalize_embeddings=True
+        )
+        similarities = util.cos_sim(embedding, self._risk_anchor_embeddings)
+        return float(similarities.max().item())
+
+    def apply_risk_safety_net(self, risk_label: str, confidence: float, text_es: str) -> tuple[str, float]:
+        """Red de seguridad por similitud semántica sobre el mensaje en español original: si
+        el clasificador ML dice 'no riesgo' pero el texto se parece en significado a una frase
+        ancla de riesgo conocida, se fuerza 'riesgo'. La confianza asignada siempre queda por
+        encima de RISK_ALERT_THRESHOLD (0.75 por defecto) para que SÍ cuente en la alerta por
+        acumulación — si esta red decide que el mensaje es de riesgo, debe pesar como tal.
+        Nunca degrada una detección de riesgo que el modelo ya hizo por su cuenta."""
+        if risk_label == "riesgo":
+            return risk_label, confidence
+        similarity = self._max_risk_similarity(text_es)
+        if similarity >= RISK_SIMILARITY_THRESHOLD:
+            forced_confidence = min(0.98, max(0.80, similarity + 0.15))
+            return "riesgo", forced_confidence
+        return risk_label, confidence
+
     def _strip_generation_artifacts(self, text: str) -> str:
         """Corta la respuesta en el primer marcador de basura (markdown residual o
         disclaimer de IA) que suelta el checkpoint sobreajustado, y descarta una
@@ -158,6 +236,12 @@ class ChatInference:
             if idx != -1:
                 cut_at = min(cut_at, idx)
         cleaned = text[:cut_at].rstrip()
+
+        cleaned_lower = cleaned.lower()
+        for marker in _PROMPT_PREFIX_ECHO_MARKERS:
+            if cleaned_lower.startswith(marker):
+                cleaned = cleaned[len(marker):].lstrip()
+                break
 
         if cleaned.endswith(":"):
             sentences = re.split(r"(?<=[.!?])\s+", cleaned)
@@ -179,19 +263,21 @@ class ChatInference:
                 num_beams=4,
                 early_stopping=True,
                 no_repeat_ngram_size=3,
+                repetition_penalty=1.3,
             )
         raw = tokenizer.decode(output_ids[0], skip_special_tokens=True)
         return self._strip_generation_artifacts(raw)
 
     def generate(self, text_en: str, is_risk: bool, sentiment_label: str) -> str:
-        # Riesgo o sentimiento negativo: modelo jhon, ya validado para estos casos.
-        # Sentimiento neutral/positivo sin riesgo: Chatbot_converncional_v1, entrenado para eso
-        # pero sobreajustado (ver _strip_generation_artifacts / _is_degenerate_generation).
-        if is_risk or sentiment_label == "negative":
-            prefix = T5_PREFIX_RISK if is_risk else T5_PREFIX_NORMAL
-            response = self._generate_with(self._generator, self._gen_tokenizer, f"{prefix} {text_en}")
-        else:
-            response = self._generate_with(self._generator_positive, self._gen_positive_tokenizer, text_en)
+        # El checkpoint que antes atendía sentimiento neutral/positivo (Chatbot_converncional_v1)
+        # divergió durante su entrenamiento (loss de validación se dispara y nunca se recupera
+        # a partir del step ~8500) y producía texto degenerado. Se retiró: todo mensaje sin
+        # riesgo pasa ahora por "modelo jhon" con el prefijo "chat:", que en pruebas reales
+        # da respuestas coherentes para cualquier tono (sentiment_label queda sin usar aquí,
+        # se conserva en la firma para no tocar a quien la llama).
+        del sentiment_label
+        prefix = T5_PREFIX_RISK if is_risk else T5_PREFIX_NORMAL
+        response = self._generate_with(self._generator, self._gen_tokenizer, f"{prefix} {text_en}")
 
         if self._is_degenerate_generation(response):
             response = self.default_generation_fallback_en
@@ -201,40 +287,44 @@ class ChatInference:
         normalized = re.sub(r"[^a-záéíóúüñ\s]", " ", text.lower())
         return " ".join(normalized.split())
 
-    def should_add_default_closing(self, text: str) -> bool:
+    # "buenas tardes/noches/días" quedan fuera a propósito: en español se usan tanto para
+    # saludar como para despedirse, y como saludo son casi siempre el primer mensaje de la
+    # conversación. "gracias" solo cuenta como despedida cuando lo dice el usuario: el
+    # generador lo usa todo el tiempo como apertura empática ("gracias por compartir eso"),
+    # así que en la respuesta del bot ese marcador daría falsos positivos constantemente.
+    _UNAMBIGUOUS_FAREWELL_MARKERS = [
+        "adios",
+        "adiós",
+        "chau",
+        "chao",
+        "hasta luego",
+        "hasta la vista",
+        "hasta pronto",
+        "nos vemos",
+        "bye",
+        "desped",
+        "me voy",
+        "me retiro",
+        "ya nos vemos",
+        "que te vaya",
+        "que te vaya bien",
+        "cuídate",
+        "cuidate",
+    ]
+
+    def should_add_default_closing(self, text: str, include_gracias: bool = False) -> bool:
         normalized = self._normalize_for_farewell_detection(text)
-        farewell_markers = [
-            "gracias",
-            "adios",
-            "adiós",
-            "chau",
-            "chao",
-            "hasta luego",
-            "hasta la vista",
-            "hasta pronto",
-            "nos vemos",
-            "bye",
-            "desped",
-            "me voy",
-            "me retiro",
-            "ya nos vemos",
-            "que te vaya",
-            "que te vaya bien",
-            "buenas noches",
-            "buenos días",
-            "buen dia",
-            "buenas tardes",
-            "cuídate",
-            "cuidate",
-        ]
-        return any(marker in normalized for marker in farewell_markers)
+        markers = self._UNAMBIGUOUS_FAREWELL_MARKERS
+        if include_gracias:
+            markers = markers + ["gracias"]
+        return any(marker in normalized for marker in markers)
 
     def append_default_closing(self, response: str, user_text: str | None = None) -> str:
-        if user_text and self.should_add_default_closing(user_text):
-            return self.default_farewell_message
+        if user_text and self.should_add_default_closing(user_text, include_gracias=True):
+            return random.choice(self.default_farewell_messages)
 
         if self.should_add_default_closing(response):
-            return self.default_farewell_message
+            return random.choice(self.default_farewell_messages)
         return response
 
     def chat(self, text_es: str) -> tuple[str, str, float]:
@@ -244,6 +334,7 @@ class ChatInference:
         # Translate current message to English for risk/sentiment classification (current message only)
         text_en = self._translate_to_en(text_es)
         risk_label, confidence = self.classify(text_en)
+        risk_label, confidence = self.apply_risk_safety_net(risk_label, confidence, text_es)
         is_risk = risk_label == "riesgo"
         sentiment_label, _ = self.classify_sentiment(text_en)
 

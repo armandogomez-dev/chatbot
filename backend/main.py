@@ -9,13 +9,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from pathlib import Path
+
+from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
+from feedback_store import list_feedback, save_feedback
 from inference import inference
 from notifier import send_email_alert, send_whatsapp_alert
-from schemas import ChatRequest, ChatResponse, UserInfo, RiskEntry
+from schemas import ChatRequest, ChatResponse, FeedbackRequest, UserInfo, RiskEntry
+
+# Token simple para proteger el endpoint de resultados de evaluación (no es para
+# autenticar usuarios del chat, solo para que no cualquiera con el link vea las
+# observaciones de los psicólogos). Vacío en local = endpoint abierto.
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 
 logging.basicConfig(level=logging.INFO)
 
@@ -49,6 +58,18 @@ def _requests_professional_contact(text: str) -> bool:
     return PROFESSIONAL_REQUEST_PHRASE in _normalize_user_text(text)
 
 
+_GREETING_PREFIX_RE = re.compile(r"^(?:¡?hola|hello|hi)[!,.]?\s*", re.IGNORECASE)
+
+
+def _strip_repeated_greeting(text: str) -> str:
+    """El generador suele abrir cada respuesta con un saludo ('Hola, ...'); a partir
+    del segundo turno de la conversación eso se siente repetitivo, así que se recorta."""
+    stripped = _GREETING_PREFIX_RE.sub("", text, count=1)
+    if not stripped:
+        return text
+    return stripped[0].upper() + stripped[1:]
+
+
 # In-memory store for chat histories: session_id -> list of messages
 # Each message is a dict: {"role": "user" or "assistant", "content": str, "timestamp": float}
 # We'll keep it simple and just store the last N messages (where N is RISK_ALERT_WINDOW * 2?).
@@ -66,20 +87,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Chatbox API", lifespan=lifespan)
 
+# En producción (single-service) el frontend se sirve desde el mismo origen que la API,
+# así que CORS no hace falta ahí; se mantiene localhost:5173 para `npm run dev` local.
+_extra_origins = [o.strip() for o in os.getenv("CORS_EXTRA_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", *_extra_origins],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+api = APIRouter(prefix="/api")
 
-@app.get("/health")
+
+@api.get("/health")
 def health():
     return {"status": "ok"}
 
 
-@app.post("/chat")
+@api.post("/chat")
 async def chat(request: Request, body: ChatRequest, background_tasks: BackgroundTasks):
     text = body.message.strip()
     if not text:
@@ -110,6 +136,10 @@ async def chat(request: Request, body: ChatRequest, background_tasks: Background
     # Compute risk and sentiment for the current user message (needed for storage, alert and routing)
     text_en = inference._translate_to_en(text)
     risk_label, risk_confidence = inference.classify(text_en)
+    # Red de seguridad basada en reglas: el clasificador ML puede fallar en ideación
+    # suicida pasiva o poco explícita (ver apply_risk_safety_net). Se aplica sobre el
+    # texto original en español, antes de la traducción, para no perder matices.
+    risk_label, risk_confidence = inference.apply_risk_safety_net(risk_label, risk_confidence, text)
     is_risk = risk_label == "riesgo"
     sentiment_label, _ = inference.classify_sentiment(text_en)
 
@@ -117,6 +147,8 @@ async def chat(request: Request, body: ChatRequest, background_tasks: Background
     # fine-tuned on single-turn inputs, not multi-turn "Usuario:/Asistente:" transcripts).
     response_en = inference.generate(text_en, is_risk, sentiment_label)
     response_es = inference._translate_to_es(response_en)
+    if not is_first_turn:
+        response_es = _strip_repeated_greeting(response_es)
     response_es = inference.append_default_closing(response_es, text)
     if is_first_turn:
         response_es = f"{response_es}\n\n{SUPPORT_AGENT_REMINDER}"
@@ -196,3 +228,31 @@ async def chat(request: Request, body: ChatRequest, background_tasks: Background
     # Set cookie (httpOnly=False so JS can read if needed; adjust as needed)
     response.set_cookie(key="session_id", value=session_id, httponly=False, max_age=60*60*24*30)  # 30 days
     return response
+
+
+@api.post("/feedback")
+def submit_feedback(body: FeedbackRequest):
+    entry_id = save_feedback(body.model_dump())
+    return {"id": entry_id}
+
+
+@api.get("/feedback")
+def get_feedback(request: Request):
+    if ADMIN_TOKEN and request.headers.get("x-admin-token") != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Token inválido.")
+    entries = list_feedback()
+    criteria = ["risk_detection", "empathy", "coherence", "clarity", "usefulness"]
+    averages = {
+        c: (sum(e[c] for e in entries) / len(entries) if entries else 0) for c in criteria
+    }
+    return {"count": len(entries), "averages": averages, "entries": entries}
+
+
+app.include_router(api)
+
+# Sirve el build de producción del frontend (frontend/dist, generado por `npm run build`)
+# desde el mismo servicio/dominio. Si no existe (p. ej. en desarrollo local, donde el
+# frontend corre aparte con `npm run dev`), se omite sin error.
+_FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+if _FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=_FRONTEND_DIST, html=True), name="frontend")

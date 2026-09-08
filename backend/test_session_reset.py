@@ -21,6 +21,7 @@ def test_new_session_clears_previous_history():
             patch("main.inference._translate_to_en", side_effect=lambda text: text),
             patch("main.inference._translate_to_es", side_effect=lambda text: text),
             patch("main.inference.classify", return_value=("normal", 0.1)),
+            patch("main.inference.apply_risk_safety_net", side_effect=lambda label, conf, text: (label, conf)),
             patch("main.inference.classify_sentiment", return_value=("neutral", 0.5)),
             patch(
                 "main.inference.generate",
@@ -54,6 +55,7 @@ def test_first_turn_includes_support_agent_reminder():
             patch("main.inference._translate_to_en", side_effect=lambda text: text),
             patch("main.inference._translate_to_es", side_effect=lambda text: text),
             patch("main.inference.classify", return_value=("no riesgo", 0.1)),
+            patch("main.inference.apply_risk_safety_net", side_effect=lambda label, conf, text: (label, conf)),
             patch("main.inference.classify_sentiment", return_value=("neutral", 0.5)),
             patch("main.inference.generate", return_value="Hola, estoy aquí para apoyarte."),
         ):
@@ -87,6 +89,7 @@ def test_professional_request_triggers_alert_immediately():
             patch("main.inference._translate_to_en", side_effect=lambda text: text),
             patch("main.inference._translate_to_es", side_effect=lambda text: text),
             patch("main.inference.classify", return_value=("no riesgo", 0.1)),
+            patch("main.inference.apply_risk_safety_net", side_effect=lambda label, conf, text: (label, conf)),
             patch("main.inference.classify_sentiment", return_value=("neutral", 0.5)),
             patch("main.inference.generate", return_value="Entiendo, voy a ayudarte con eso."),
         ):
@@ -119,6 +122,7 @@ def test_alerted_session_rejects_later_messages():
             patch("main.inference._translate_to_en", side_effect=lambda text: text),
             patch("main.inference._translate_to_es", side_effect=lambda text: text),
             patch("main.inference.classify", return_value=("no riesgo", 0.1)),
+            patch("main.inference.apply_risk_safety_net", side_effect=lambda label, conf, text: (label, conf)),
             patch("main.inference.classify_sentiment", return_value=("neutral", 0.5)),
             patch("main.inference.generate", return_value="Entiendo, voy a ayudarte con eso."),
         ):

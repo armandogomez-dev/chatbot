@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class UserInfo(BaseModel):
@@ -28,3 +28,13 @@ class ChatResponse(BaseModel):
     alert_sent: bool
     chat_blocked: bool = False
     session_id: str | None = None
+
+
+class FeedbackRequest(BaseModel):
+    rater_name: str = ""
+    risk_detection: int = Field(ge=1, le=5)
+    empathy: int = Field(ge=1, le=5)
+    coherence: int = Field(ge=1, le=5)
+    clarity: int = Field(ge=1, le=5)
+    usefulness: int = Field(ge=1, le=5)
+    observations: str = ""
