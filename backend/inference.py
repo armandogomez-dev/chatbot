@@ -163,7 +163,10 @@ class ChatInference:
     def _translate(self, text: str, model: MarianMTModel, tokenizer: MarianTokenizer) -> str:
         inputs = tokenizer([text], return_tensors="pt", truncation=True, max_length=512)
         with torch.no_grad():
-            output_ids = model.generate(**inputs)
+            # num_beams=1 (greedy): en CPU, la búsqueda por beams del checkpoint opus-mt
+            # (num_beams=4/6 por defecto) es uno de los pasos más caros del pipeline;
+            # para oraciones cortas la pérdida de fluidez frente a beam search es mínima.
+            output_ids = model.generate(**inputs, num_beams=1, max_length=200)
         return tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
     def _translate_to_en(self, text: str) -> str:
@@ -259,8 +262,10 @@ class ChatInference:
         with torch.no_grad():
             output_ids = model.generate(
                 **inputs,
-                max_length=200,
-                num_beams=4,
+                # max_length/num_beams bajados para CPU: con 4 beams y 200 tokens este era
+                # el paso más lento del pipeline (el costo crece ~linealmente con num_beams).
+                max_length=120,
+                num_beams=2,
                 early_stopping=True,
                 no_repeat_ngram_size=3,
                 repetition_penalty=1.3,

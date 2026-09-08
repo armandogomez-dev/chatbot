@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import re
@@ -47,6 +48,26 @@ SUPPORT_AGENT_REMINDER = (
 
 def _is_high_risk(label: str, confidence: float) -> bool:
     return label == "riesgo" and confidence >= RISK_ALERT_THRESHOLD
+
+
+def _run_pipeline(text: str) -> tuple[str, str, float]:
+    """Traducción + clasificación de riesgo/sentimiento + generación, todo síncrono
+    y CPU-bound. Se ejecuta en un hilo aparte (ver /api/chat) para no bloquear el
+    event loop."""
+    text_en = inference._translate_to_en(text)
+    risk_label, risk_confidence = inference.classify(text_en)
+    # Red de seguridad basada en reglas: el clasificador ML puede fallar en ideación
+    # suicida pasiva o poco explícita (ver apply_risk_safety_net). Se aplica sobre el
+    # texto original en español, antes de la traducción, para no perder matices.
+    risk_label, risk_confidence = inference.apply_risk_safety_net(risk_label, risk_confidence, text)
+    is_risk = risk_label == "riesgo"
+    sentiment_label, _ = inference.classify_sentiment(text_en)
+
+    # Generate response in English from the current message only (the generators were
+    # fine-tuned on single-turn inputs, not multi-turn "Usuario:/Asistente:" transcripts).
+    response_en = inference.generate(text_en, is_risk, sentiment_label)
+    response_es = inference._translate_to_es(response_en)
+    return response_es, risk_label, risk_confidence
 
 
 def _normalize_user_text(text: str) -> str:
@@ -133,20 +154,14 @@ async def chat(request: Request, body: ChatRequest, background_tasks: Background
 
     is_first_turn = not chat_histories.get(session_id)
 
-    # Compute risk and sentiment for the current user message (needed for storage, alert and routing)
-    text_en = inference._translate_to_en(text)
-    risk_label, risk_confidence = inference.classify(text_en)
-    # Red de seguridad basada en reglas: el clasificador ML puede fallar en ideación
-    # suicida pasiva o poco explícita (ver apply_risk_safety_net). Se aplica sobre el
-    # texto original en español, antes de la traducción, para no perder matices.
-    risk_label, risk_confidence = inference.apply_risk_safety_net(risk_label, risk_confidence, text)
-    is_risk = risk_label == "riesgo"
-    sentiment_label, _ = inference.classify_sentiment(text_en)
-
-    # Generate response in English from the current message only (the generators were
-    # fine-tuned on single-turn inputs, not multi-turn "Usuario:/Asistente:" transcripts).
-    response_en = inference.generate(text_en, is_risk, sentiment_label)
-    response_es = inference._translate_to_es(response_en)
+    # Todo el pipeline es CPU-bound y síncrono (traducción, clasificadores, generador);
+    # correrlo en el hilo del event loop bloqueaba TODA la app (incluido /api/health)
+    # mientras un mensaje se procesaba. Se ejecuta en un hilo aparte para que el resto
+    # de peticiones (health checks, estáticos, otras sesiones) sigan respondiendo.
+    loop = asyncio.get_running_loop()
+    response_es, risk_label, risk_confidence = await loop.run_in_executor(
+        None, _run_pipeline, text
+    )
     if not is_first_turn:
         response_es = _strip_repeated_greeting(response_es)
     response_es = inference.append_default_closing(response_es, text)
